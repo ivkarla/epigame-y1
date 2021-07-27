@@ -1,2 +1,2 @@
 # epigame-y1
-Project for predicting epileptogenic networks from SEEG preseizure and seizure data. 
+A project for epileptogenic network definition: implementation of a seizure generation model based on game theory principle and connectivity dynamics.
