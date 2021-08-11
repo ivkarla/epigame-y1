@@ -1,13 +1,8 @@
-from eeg import EEG, SET, STEp, epoch, secs, ms, np, struct
+from eeg import EEG, SET, STEp, epoch, secs, ms, np, struct, preprocess
 from core import REc as rec
 from data_legacy import notch, dwindle, record, band, upsample
 from connectivity import connectivity_analysis, phaselock, phaselag, spectral_coherence, PEC, cross_correlation, PAC
-
-from sklearn.model_selection import cross_val_score, KFold, RepeatedKFold, train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score
-from sklearn.pipeline import Pipeline
-from sklearn.svm import SVC
+from game import analyze, minimax_of, enlist, check_until
 
 from itertools import combinations
 from sys import setrecursionlimit
@@ -21,36 +16,13 @@ def preprocess(eeg, epoch, limit=500):
     nse = notch(rse, fs=sampling, order=2)
     return nse
 
-def analyze(set, nodes, kratio=.1, random_state=31, **mopts):
-    X, Y = np.array([np.array((record(x).include(*nodes).T).include(*nodes)).flatten() for x in set.X]), set.y
-    model, scaler, k = SVC, StandardScaler, int(round(len(Y)*kratio))
-    if random_state == None: random_state = np.random.randint(0xFFFFFFFF)
-    C = Pipeline([('scaler', scaler()), ('model', model(**mopts))])
-    cv = KFold(k, shuffle=True, random_state=random_state)
-    cvs = cross_val_score(C, X, Y, cv=cv)
-    return cvs
-
-def minimax_of(results):
-    return max(results)*(min(results)/np.average(results)) 
-
-def enlist(nodes, labels, results, symbol='<->', fx=minimax_of):
-    tag = symbol.join([labels[n] for n in nodes])
-    return (nodes, tag, results, fx(results))
-
-def check_until(net, set=1, fall=0, at=-1):
-    while set < len(net):
-        score = np.average([n[at] for n in net[:set]])
-        if score>=fall:
-            fall=score
-            set+=1
-        else: break
-    return set
-
 source = os.cwd()+"../data/raw/" 
 preprocessed = os.cwd()+"../data/preprocessed/"
 out = os.cwd()+"../data/results/"
 
-""" Initialization of variables: method and frequency band of choice """  
+""" 
+    Initialization of variables: method and frequency band of choice
+                                                                     """  
 window = input("Time window:\n 1. Non-seizure (baseline)\n 2. Pre-seizure\n 3. Transition to seizure\n 4. Seizure\n Indicate a number: ")
 method_idx = input("Connectivity method:\n 1. PEC\n 2. Spectral Coherence\n 3. Phase Lock Value\n 4. Phase-Lag Index\n 5. Cross-correlation\n 6. Phase-amplitude coupling\n Indicate a number: ")
 ext = ""
@@ -69,6 +41,7 @@ dict_methods = {'1':PEC, '2':spectral_coherence, '3':phaselock, '4':phaselag, '5
 method_codes = {'1':"PEC", '2':"SC_", '3':"PLV", '4':"PLI", '5':"CC", '6':"PAC"}   
 files = list(os.listdir(source))
 subjects = [fname[0:3] for fname in files]
+limit = 500
 step, span = 500, 1000            #to increase stats power, decrease step to 250 or 100, modyfing their ratio accordingly (span/step)
 ratio = span/step
 A, B = 'S', 'E'                   #S and E labels both mean non-seizure, kept from the original version for convenience
@@ -83,7 +56,9 @@ for subid in subjects:
         if filename.startswith(subid): name = filename; break        
     eeg = EEG.from_file(source+name, epoch(ms(step), ms(span)))
     print(subid, "\n sampling: ", eeg.fs)
-    
+    if eeg.fs == 512: limit = 512
+    else: limit = 500
+        
     SET(eeg, _as='N')
     SET(eeg, 'EEG inicio', 'S')
     SET(eeg, 'EEG fin', 'E', epoch.END)
@@ -107,7 +82,7 @@ for subid in subjects:
     x = a + b                         # all epochs, containing 'N' epochs and 'S' epochs
     y = [0]*items + [1]*items         # structure initialitation 
     
-    esppe = [preprocess(eeg, ep) for i,ep in enumerate(x)] 
+    esppe = [preprocess(eeg, ep, limit) for i,ep in enumerate(x)] 
     print("resampled: ", esppe[0].shape)
     """ Filter frequency bands """
     fesppe = []
@@ -117,15 +92,15 @@ for subid in subjects:
     result = struct(x=np.array(x), y=np.array(y), i=np.array(i))
     if dict_methods[method_idx] == spectral_coherence:
         result._set(SC = connectivity_analysis(fesppe,spectral_coherence,fesppe[0].shape[1],imag))
-    if dict_methods[method_idx] == PEC: 
+    elif dict_methods[method_idx] == PEC: 
         result._set(PEC = [PEC(ep,i+1) for i,ep in enumerate(fesppe)])
-    if dict_methods[method_idx] == phaselock:
+    elif dict_methods[method_idx] == phaselock:
         result._set(PLV = connectivity_analysis(fesppe, phaselock))
-    if dict_methods[method_idx] == phaselag:
+    elif dict_methods[method_idx] == phaselag:
         result._set(PLI = connectivity_analysis(fesppe, phaselag))
-    if dict_methods[method_idx] == cross_correlation:
+    elif dict_methods[method_idx] == cross_correlation:
         result._set(CC = connectivity_analysis(fesppe, cross_correlation))
-    if dict_methods[method_idx] == PAC:
+    elif dict_methods[method_idx] == PAC:
         result._set(PAC = connectivity_analysis(fesppe, PAC, True, fesppe[0].shape[1]))
         
     if Bands: rec(result).save(preprocessed+"{}/".format(method_code[method_idx]+ext)+"{}/".format(str(bands).replace(" ",""))+"NN/"+'.'.join(['-'.join([subid,"nn"]),'prep']))
