@@ -199,13 +199,6 @@ class EEG(Table):
     def tag(event, *a_b, **event_range):
         event._set(sample=event.sampler(event, *a_b))
         event.sample.set(**event_range)
-def preprocess(eeg, epoch, limit=500): 
-    sampling, rse = limit, epoch
-    if eeg.fs == limit: rse = epoch
-    elif eeg.fs == 250: rse = upsample(epoch, eeg.fs, limit) if eeg.fs<limit else dwindle(epoch, int(eeg.fs/limit)-1) 
-    else: rse = upsample(epoch, eeg.fs, limit) if eeg.fs<limit else dwindle(epoch, int(eeg.fs/limit)-2) 
-    nse = notch(rse, fs=sampling, order=2)
-    return nse
         
 STEp = epoch = EEG.step
 TIME = EEG.time
