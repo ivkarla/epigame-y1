@@ -1,3 +1,5 @@
+# pylint: disable=no-self-argument, no-member
+
 from eeg import EEG, SET, STEp, epoch, secs, ms, np, struct, preprocess
 from core import REc as rec
 from data_legacy import notch, dwindle, record, band, upsample
@@ -9,9 +11,10 @@ from sys import setrecursionlimit
 import os
 
 def preprocess(eeg, epoch, limit=500): 
+    '''returns resampled data (to limit value in Hz) filtered with notch'''
     sampling, rse = limit, epoch
     if eeg.fs == limit: rse = epoch
-    elif eeg.fs == 250: rse = upsample(epoch, eeg.fs, limit) if eeg.fs<limit else dwindle(epoch, int(eeg.fs/limit)-1) 
+    elif eeg.fs%limit != 0: rse = upsample(epoch, eeg.fs, limit) if eeg.fs<limit else dwindle(epoch, int(eeg.fs/limit)-1) 
     else: rse = upsample(epoch, eeg.fs, limit) if eeg.fs<limit else dwindle(epoch, int(eeg.fs/limit)-2) 
     nse = notch(rse, fs=sampling, order=2)
     return nse
@@ -20,9 +23,7 @@ source = os.cwd()+"../data/raw/"
 preprocessed = os.cwd()+"../data/preprocessed/"
 out = os.cwd()+"../data/results/"
 
-""" 
-    Initialization of variables: method and frequency band of choice
-                                                                     """  
+"""INITIALIZATION: method and frequency band of choice"""  
 window = input("Time window:\n 1. Non-seizure (baseline)\n 2. Pre-seizure\n 3. Transition to seizure\n 4. Seizure\n Indicate a number: ")
 method_idx = input("Connectivity method:\n 1. PEC\n 2. Spectral Coherence\n 3. Phase Lock Value\n 4. Phase-Lag Index\n 5. Cross-correlation\n 6. Phase-amplitude coupling\n Indicate a number: ")
 ext = ""
@@ -44,12 +45,14 @@ subjects = [fname[0:3] for fname in files]
 limit = 500
 step, span = 500, 1000            #to increase stats power, decrease step to 250 or 100, modyfing their ratio accordingly (span/step)
 ratio = span/step
-A, B = 'S', 'E'                   #S and E labels both mean non-seizure, kept from the original version for convenience
-items = 30                        #number of epochs to analyse
-retry_ratio = 0                   #at the beginning I though to use a percentage of all found networks, but that leads to an exponential increase that prooves to be unmanageable
-max_netn = 10                     #max number of nodes per network. This 10 is to avoid too long processing times and also a statistical failure, if networks are too big they will ultimately cover all the explored area
-    
-for subid in subjects:   
+A, B = 'S', 'E'                   
+items = 30                        
+retry_ratio = 0                   #at the beginning we thought to use a percentage of all found networks, but that leads to an exponential increase that prooves to be unmanageable
+max_netn = 10                     #max number of nodes per network (10 is to avoid too long processing times and also a statistical failure, if networks are too big they will ultimately cover all the explored area)
+
+"""ANALYSIS PIPELINE"""  
+for subid in subjects:  
+    """LOADING DATA""" 
     print('processing {}'.format(subid), end='...')
     name = ''
     for filename in files:
@@ -58,14 +61,16 @@ for subid in subjects:
     print(subid, "\n sampling: ", eeg.fs)
     if eeg.fs == 512: limit = 512
     else: limit = 500
-        
+
+    """PREPROCESSING""" 
     SET(eeg, _as='N')
     SET(eeg, 'EEG inicio', 'S')
     SET(eeg, 'EEG fin', 'E', epoch.END)
     eeg.optimize()
     eeg.remap()
-    units = int((eeg.notes['EEG fin'][0].time - eeg.notes['EEG inicio'][0].time)*ratio)
+    units = int((eeg.notes['EEG fin'][0].time - eeg.notes['EEG inicio'][0].time)*ratio) 
     
+    '''tagging epochs relative to seizure duration'''
     if window == "1":
         pre = int(round(units))
         eeg.tag(('S','E'), S=range(-pre,0,1), E=range(0,-units,-1))
@@ -76,19 +81,21 @@ for subid in subjects:
         pre = int(round(units*.3))
         eeg.tag(('S', 'E'), S=range(-pre,pre,1), E=range(0,-units,-1)) 
 
-    a, ai = eeg.sample.get(A, items)  # a -> epochs with 'N' ; ai -> index of these epochs 
-    b, bi = eeg.sample.get(B, items)  # b -> epochs with 'S' ; bi -> index of these epochs 
-    i = ai+bi                         # total number of items, number of all epochs being analyzed, should be equal to items*2
-    x = a + b                         # all epochs, containing 'N' epochs and 'S' epochs
-    y = [0]*items + [1]*items         # structure initialitation 
+    a, ai = eeg.sample.get(A, items)   
+    b, bi = eeg.sample.get(B, items)   
+    i = ai+bi                         
+    x = a + b                         
+    y = [0]*items + [1]*items          
     
     esppe = [preprocess(eeg, ep, limit) for i,ep in enumerate(x)] 
     print("resampled: ", esppe[0].shape)
-    """ Filter frequency bands """
+
+    '''filtering frequency bands'''
     fesppe = []
     if Bands: fesppe = [band(e, bands, esppe[0].shape[1]) for e in esppe]
     elif not Bands: fesppe = esppe
     
+    '''connectivity analysis'''
     result = struct(x=np.array(x), y=np.array(y), i=np.array(i))
     if dict_methods[method_idx] == spectral_coherence:
         result._set(SC = connectivity_analysis(fesppe,spectral_coherence,fesppe[0].shape[1],imag))
@@ -102,17 +109,21 @@ for subid in subjects:
         result._set(CC = connectivity_analysis(fesppe, cross_correlation))
     elif dict_methods[method_idx] == PAC:
         result._set(PAC = connectivity_analysis(fesppe, PAC, True, fesppe[0].shape[1]))
-        
+
+    '''saving preprocessed data'''
     if Bands: rec(result).save(preprocessed+"{}/".format(method_code[method_idx]+ext)+"{}/".format(str(bands).replace(" ",""))+"NN/"+'.'.join(['-'.join([subid,"nn"]),'prep']))
     elif not Bands: rec(result).save(preprocessed+"{}/".format(method_code[method_idx]+ext)+"NN/"+'.'.join(['-'.join([subid,"nn"]),'prep']))
 
-    nid, nodes = list(range(len(eeg.axes.region))), list(eeg.axes.region) # nid-> identificator of each node ; nodes -> name of the electrode contact (ex: B'1-B'2)
+    """ANALYSIS"""
+    '''load preprocessed data'''
+    nid, nodes = list(range(len(eeg.axes.region))), list(eeg.axes.region) 
     nxn, base, ftype, rtype = combinations(nid, 2), [], '.prep', '.res'  
     AB, pid = (A+B).lower(), subid
     pid = '-'.join([pid,AB])
     if Bands: prep_path=preprocessed+"{}/".format(method_code[method_idx]+ext)+"{}/".format(str(bands).replace(" ",""))+"NN/"+'.'.join(['-'.join([subid,"nn"]),'prep'])
     elif not Bands: prep_path=preprocessed+"{}/".format(method_code[method_idx]+ext)+"NN/"+'.'.join(['-'.join([subid,"nn"]),'prep'])
 
+    '''analysis'''
     pdata = rec.load(prep_path).data
     print('processing base combinations...', end=' ')
     for pair in nxn: base.append(enlist(pair, nodes, analyze(pdata, pair, methods = methods, dict_methods=dict_methods))) 
@@ -144,5 +155,6 @@ for subid in subjects:
     selected = sorted(set([t for n in nets[:check_until(nets)] for t in n[1].split('<->')]))
     print('\nselected nodes: {}/{}.'.format(', '.join(selected), len(selected)))
     
+    '''saving analysis result'''
     if Bands: rec(struct(base=base, nets=nets, nodes=selected)).save(out+"{}/".format(method_code[method_idx]+ext)+"{}/".format(str(bands).replace(" ",""))+"NN/"+'-'.join([subid,"nn"])+rtype)
     elif not Bands: rec(struct(base=base, nets=nets, nodes=selected)).save(out+"{}/".format(method_code[method_idx]+ext)+"NN/"+'-'.join([subid,"nn"])+rtype)
