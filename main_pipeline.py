@@ -61,7 +61,6 @@ for subid in subjects:
     print(subid, "\n sampling: ", eeg.fs)
     if eeg.fs == 512: limit = 512
     else: limit = 500
-
     """PREPROCESSING""" 
     SET(eeg, _as='N')
     SET(eeg, 'EEG inicio', 'S')
@@ -94,7 +93,7 @@ for subid in subjects:
     fesppe = []
     if Bands: fesppe = [band(e, bands, esppe[0].shape[1]) for e in esppe]
     elif not Bands: fesppe = esppe
-    
+
     '''connectivity analysis'''
     result = struct(x=np.array(x), y=np.array(y), i=np.array(i))
     if dict_methods[method_idx] == spectral_coherence:
@@ -123,7 +122,6 @@ for subid in subjects:
     if Bands: prep_path=preprocessed+"{}/".format(method_code[method_idx]+ext)+"{}/".format(str(bands).replace(" ",""))+"NN/"+'.'.join(['-'.join([subid,"nn"]),'prep'])
     elif not Bands: prep_path=preprocessed+"{}/".format(method_code[method_idx]+ext)+"NN/"+'.'.join(['-'.join([subid,"nn"]),'prep'])
 
-    '''analysis'''
     pdata = rec.load(prep_path).data
     print('processing base combinations...', end=' ')
     for pair in nxn: base.append(enlist(pair, nodes, analyze(pdata, pair, methods = methods, dict_methods=dict_methods))) 

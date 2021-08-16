@@ -24,6 +24,9 @@ def minimax_of(results):
 
 def enlist(nodes, labels, results, symbol='<->', fx=minimax_of):
     '''returns summary of nodes, tags (format X<=>Y), results (cross validation scores) and a function of results for scoring connectivity change (minimax by default)'''
+    return max(results)*(min(results)/np.average(results)) 
+
+def enlist(nodes, labels, results, symbol='<->', fx=minimax_of):
     tag = symbol.join([labels[n] for n in nodes])
     return (nodes, tag, results, fx(results))
 
